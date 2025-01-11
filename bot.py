@@ -9,9 +9,7 @@ import os
 # Конфигурация
 API_TOKEN = os.getenv("API_TOKEN")
 PORT = int(os.getenv("PORT", 5000))
-WEBHOOK_HOST = os.getenv("WEBHOOK_HOST")
-WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
-WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 BASE_URL = "https://ap-r.ru"
 
 # Логирование
@@ -86,14 +84,13 @@ async def handle_webhook(request):
         logger.error(f"Ошибка обработки вебхука: {e}")
         return web.Response(text="Ошибка обработки вебхука", status=500)
 
-app.router.add_post(WEBHOOK_PATH, handle_webhook)
+app.router.add_post(WEBHOOK_URL.split("/")[-1], handle_webhook)
 
 # Запуск приложения
 if __name__ == "__main__":
     logger.info(f"API_TOKEN: {API_TOKEN}")
-    logger.info(f"WEBHOOK_HOST: {WEBHOOK_HOST}")
-    logger.info(f"PORT: {PORT}")
     logger.info(f"WEBHOOK_URL: {WEBHOOK_URL}")
+    logger.info(f"PORT: {PORT}")
     try:
         logger.info("Запуск приложения...")
         web.run_app(app, host="0.0.0.0", port=PORT)
