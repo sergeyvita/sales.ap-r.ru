@@ -1,75 +1,118 @@
 import logging
-from aiogram import Bot, Dispatcher, executor, types
-from aiogram.utils.exceptions import TelegramAPIError
-from aiogram.dispatcher.webhook import SendMessage
-import asyncio
+from aiogram import Bot, Dispatcher, types
+from aiogram.utils.executor import start_webhook
+from aiohttp import ClientSession
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 import os
 
-# Настройка логирования
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger(__name__)
-
-# Настройка токена и хостинга
-API_TOKEN = os.getenv("TELEGRAM_API_TOKEN", "your-telegram-bot-token")
-WEBHOOK_HOST = "https://your-render-webhook-url.com"
+# Конфигурация
+API_TOKEN = os.getenv("API_TOKEN", "7523291164:AAGLdUXewSbBHDDgcFue8nU2-e1F4vE7h6M")
+PORT = int(os.getenv("PORT", 5000))
+WEBHOOK_HOST = os.getenv("WEBHOOK_HOST", "https://sales-ap-r-ru.onrender.com")
 WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+BASE_URL = "https://ap-r.ru"
 
+# Логирование
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Инициализация бота и диспетчера
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
-@dp.message_handler(commands=["start", "help"])
-async def send_welcome(message: types.Message):
+async def fetch_page_content(url):
+    """Загрузка содержимого страницы"""
     try:
-        await message.reply("Привет! Я бот для поиска информации по жилым комплексам.")
-    except TelegramAPIError as e:
-        logger.error(f"Ошибка при отправке сообщения: {e}")
-        await message.reply("Произошла ошибка при обработке команды. Попробуйте снова.")
+        async with ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    logger.error(f"Не удалось загрузить страницу: {url}")
+                    return None
+                return await response.text()
+    except Exception as e:
+        logger.error(f"Ошибка загрузки страницы {url}: {e}")
+        return None
+
+def parse_cities(main_page_html):
+    """Извлечение ссылок на города с главной страницы"""
+    try:
+        soup = BeautifulSoup(main_page_html, 'html.parser')
+        city_links = soup.select('a.city-link')  # Измените селектор на актуальный
+        return {link.text.strip(): urljoin(BASE_URL, link['href']) for link in city_links}
+    except Exception as e:
+        logger.error(f"Ошибка парсинга городов: {e}")
+        return {}
+
+def parse_complexes(city_page_html):
+    """Извлечение информации о ЖК на странице города"""
+    try:
+        soup = BeautifulSoup(city_page_html, 'html.parser')
+        complex_cards = soup.select('div.complex-card')  # Измените селектор на актуальный
+        complexes = []
+        for card in complex_cards:
+            name = card.select_one('h2').text.strip()
+            link = urljoin(BASE_URL, card.select_one('a')['href'])
+            complexes.append({'name': name, 'link': link})
+        return complexes
+    except Exception as e:
+        logger.error(f"Ошибка парсинга ЖК: {e}")
+        return []
+
+@dp.message_handler(commands=['start', 'help'])
+async def send_welcome(message: types.Message):
+    await message.reply("Привет! Напиши название жилого комплекса, чтобы я нашел информацию.")
 
 @dp.message_handler()
-async def handle_message(message: types.Message):
-    try:
-        # Заглушка для поиска ЖК
-        if "ЖК" in message.text:
-            await message.reply(f"Ищу информацию о {message.text}, пожалуйста, подождите...")
-            # Логика поиска информации
-            await asyncio.sleep(2)  # Имитируем время обработки
-            await message.reply(f"Информация о {message.text} найдена.")
-        else:
-            await message.reply("Введите название ЖК для поиска.")
-    except TelegramAPIError as e:
-        logger.error(f"Ошибка при обработке сообщения: {e}")
-        await message.reply("Произошла ошибка при обработке вашего запроса. Попробуйте снова.")
+async def handle_query(message: types.Message):
+    query = message.text.strip()
+    logger.info(f"Получен запрос: {query}")
+
+    await message.reply("Ищу информацию, подождите...")
+
+    # Загрузка главной страницы
+    main_page_html = await fetch_page_content(BASE_URL)
+    if not main_page_html:
+        await message.reply("Не удалось загрузить главную страницу сайта.")
+        return
+
+    # Парсинг городов
+    cities = parse_cities(main_page_html)
+    if not cities:
+        await message.reply("Не удалось найти города на сайте.")
+        return
+
+    # Поиск ЖК в городах
+    for city_name, city_url in cities.items():
+        logger.info(f"Обрабатываю город: {city_name}, URL: {city_url}")
+        city_page_html = await fetch_page_content(city_url)
+        if not city_page_html:
+            logger.warning(f"Не удалось загрузить страницу города: {city_name}")
+            continue
+
+        complexes = parse_complexes(city_page_html)
+        for complex_ in complexes:
+            if query.lower() in complex_['name'].lower():
+                await message.reply(f"Найден ЖК: {complex_['name']}\nСсылка: {complex_['link']}")
+                return
+
+    await message.reply("Информация о данном жилом комплексе не найдена.")
 
 async def on_startup(dp):
-    try:
-        await bot.set_webhook(WEBHOOK_URL)
-        logger.info(f"Webhook установлен: {WEBHOOK_URL}")
-    except TelegramAPIError as e:
-        logger.error(f"Ошибка установки Webhook: {e}")
-        raise
+    await bot.set_webhook(WEBHOOK_URL)
+    logger.info(f"Webhook установлен: {WEBHOOK_URL}")
 
 async def on_shutdown(dp):
-    try:
-        await bot.delete_webhook()
-        logger.info("Webhook удалён.")
-    except TelegramAPIError as e:
-        logger.error(f"Ошибка удаления Webhook: {e}")
+    await bot.delete_webhook()
+    logger.info("Webhook удалён.")
 
 if __name__ == "__main__":
-    try:
-        executor.start_webhook(
-            dispatcher=dp,
-            webhook_path=WEBHOOK_PATH,
-            on_startup=on_startup,
-            on_shutdown=on_shutdown,
-            skip_updates=True,
-            host="0.0.0.0",
-            port=8443,
-        )
-    except Exception as e:
-        logger.error(f"Критическая ошибка: {e}")
+    start_webhook(
+        dispatcher=dp,
+        webhook_path=WEBHOOK_PATH,
+        on_startup=on_startup,
+        on_shutdown=on_shutdown,
+        host="0.0.0.0",
+        port=PORT,
+    )
