@@ -37,7 +37,6 @@ async def handle_message(message: types.Message):
     logger.info(f"Получен текстовый запрос: {query}")
     await message.reply("Ищу информацию, пожалуйста, подождите...")
 
-    # Пример обработки запроса
     main_page_html = await fetch_page_content(BASE_URL)
     if not main_page_html:
         logger.error("Не удалось загрузить главную страницу.")
@@ -45,9 +44,6 @@ async def handle_message(message: types.Message):
         return
     
     logger.info("Главная страница успешно загружена.")
-    # Извлечение данных (здесь можно реализовать парсинг ЖК)
-    # Например, cities = parse_cities(main_page_html)
-
     await message.reply(f"Информация о '{query}' не найдена.")
     logger.info(f"Информация о запросе '{query}' не найдена.")
 
