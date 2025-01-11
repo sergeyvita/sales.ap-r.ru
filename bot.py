@@ -1,7 +1,6 @@
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Update
-from aiogram.utils.executor import start_webhook
 from aiohttp import web
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
@@ -104,12 +103,18 @@ async def handle_webhook(request):
     """Обработчик вебхука"""
     try:
         data = await request.json()
+        logger.info(f"Получен запрос на вебхук: {data}")
         update = Update.to_object(data)
         await dp.process_update(update)
         return web.Response(text="OK")
     except Exception as e:
         logger.error(f"Ошибка обработки вебхука: {e}")
-        return web.Response(status=500)
+        return web.Response(text="Ошибка сервера", status=500)
+
+# Проверка сервера
+@app.route("/")
+async def health_check(request):
+    return web.Response(text="Сервер работает!")
 
 # Запуск вебхуков
 async def on_startup(dp):
