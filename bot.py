@@ -1,118 +1,75 @@
 import logging
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import Message
-from aiogram.utils.executor import start_webhook
-from aiohttp import ClientSession
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+from aiogram import Bot, Dispatcher, executor, types
+from aiogram.utils.exceptions import TelegramAPIError
+from aiogram.dispatcher.webhook import SendMessage
+import asyncio
 import os
 
-# Telegram Bot Token
-API_TOKEN = os.getenv("API_TOKEN")
+# Настройка логирования
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-
-# Initialize bot and dispatcher
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
-
-# Base URL of the website
-BASE_URL = "https://ap-r.ru"
-
-# Webhook settings
-WEBHOOK_HOST = os.getenv("WEBHOOK_HOST", "https://ваш-домен.render.com")  # Замените на ваш домен Render
+# Настройка токена и хостинга
+API_TOKEN = os.getenv("TELEGRAM_API_TOKEN", "your-telegram-bot-token")
+WEBHOOK_HOST = "https://your-render-webhook-url.com"
 WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
-# Webserver settings
-WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = int(os.getenv("PORT", 5000))
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher(bot)
 
-async def fetch_cities():
-    """
-    Fetch all city links from the main page.
-    """
-    async with ClientSession() as session:
-        async with session.get(BASE_URL) as response:
-            if response.status != 200:
-                logging.error("Failed to load main page")
-                return []
-            
-            html = await response.text()
-            soup = BeautifulSoup(html, 'html.parser')
-            
-            # Find all city links (adjust the class or structure as needed)
-            city_links = soup.find_all('a', href=True, class_='city-link')  # Adjust class name
-            cities = [urljoin(BASE_URL, link['href']) for link in city_links]
-            return cities
-
-async def fetch_housing_info(city_url, query):
-    """
-    Fetch housing information from a specific city's page.
-    """
-    async with ClientSession() as session:
-        async with session.get(city_url) as response:
-            if response.status != 200:
-                logging.error(f"Failed to load city page: {city_url}")
-                return []
-            
-            html = await response.text()
-            soup = BeautifulSoup(html, 'html.parser')
-
-            # Find housing complex cards (adjust based on actual site structure)
-            complexes = soup.find_all('div', class_='complex-card')  # Adjust class name
-            results = []
-            for complex_card in complexes:
-                title = complex_card.find('h2').get_text(strip=True)
-                if query.lower() in title.lower():
-                    link = complex_card.find('a')['href']
-                    results.append(f"🏢 {title}\n🔗 {urljoin(BASE_URL, link)}")
-            
-            return results
-
-@dp.message_handler(commands=['start'])
-async def send_welcome(message: Message):
-    await message.reply("Привет! Я бот Ассоциации застройщиков. Напиши название жилого комплекса, чтобы получить информацию.")
+@dp.message_handler(commands=["start", "help"])
+async def send_welcome(message: types.Message):
+    try:
+        await message.reply("Привет! Я бот для поиска информации по жилым комплексам.")
+    except TelegramAPIError as e:
+        logger.error(f"Ошибка при отправке сообщения: {e}")
+        await message.reply("Произошла ошибка при обработке команды. Попробуйте снова.")
 
 @dp.message_handler()
-async def search_housing(message: Message):
-    query = message.text.strip()
-    await message.reply("Ищу информацию, пожалуйста, подождите...")
-
-    # Fetch city links
-    city_links = await fetch_cities()
-    if not city_links:
-        await message.reply("Не удалось получить список городов.")
-        return
-
-    results = []
-    for city_url in city_links:
-        city_results = await fetch_housing_info(city_url, query)
-        results.extend(city_results)
-        if results:  # Stop searching if we already found results
-            break
-
-    if not results:
-        await message.reply("Информация о данном жилом комплексе не найдена.")
-    else:
-        await message.reply("\n\n".join(results[:5]))  # Limit to 5 results
+async def handle_message(message: types.Message):
+    try:
+        # Заглушка для поиска ЖК
+        if "ЖК" in message.text:
+            await message.reply(f"Ищу информацию о {message.text}, пожалуйста, подождите...")
+            # Логика поиска информации
+            await asyncio.sleep(2)  # Имитируем время обработки
+            await message.reply(f"Информация о {message.text} найдена.")
+        else:
+            await message.reply("Введите название ЖК для поиска.")
+    except TelegramAPIError as e:
+        logger.error(f"Ошибка при обработке сообщения: {e}")
+        await message.reply("Произошла ошибка при обработке вашего запроса. Попробуйте снова.")
 
 async def on_startup(dp):
-    await bot.set_webhook(WEBHOOK_URL)
-    logging.info("Webhook set!")
+    try:
+        await bot.set_webhook(WEBHOOK_URL)
+        logger.info(f"Webhook установлен: {WEBHOOK_URL}")
+    except TelegramAPIError as e:
+        logger.error(f"Ошибка установки Webhook: {e}")
+        raise
 
 async def on_shutdown(dp):
-    logging.warning('Shutting down webhook...')
-    await bot.delete_webhook()
-    logging.warning('Webhook deleted!')
+    try:
+        await bot.delete_webhook()
+        logger.info("Webhook удалён.")
+    except TelegramAPIError as e:
+        logger.error(f"Ошибка удаления Webhook: {e}")
 
 if __name__ == "__main__":
-    start_webhook(
-        dispatcher=dp,
-        webhook_path=WEBHOOK_PATH,
-        on_startup=on_startup,
-        on_shutdown=on_shutdown,
-        host=WEBAPP_HOST,
-        port=WEBAPP_PORT,
-    )
+    try:
+        executor.start_webhook(
+            dispatcher=dp,
+            webhook_path=WEBHOOK_PATH,
+            on_startup=on_startup,
+            on_shutdown=on_shutdown,
+            skip_updates=True,
+            host="0.0.0.0",
+            port=8443,
+        )
+    except Exception as e:
+        logger.error(f"Критическая ошибка: {e}")
