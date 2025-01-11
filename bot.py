@@ -16,34 +16,45 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
-# Base URL of the website
-BASE_URL = "https://ap-r.ru"
-
 # Function to fetch and parse information about a housing complex
 def fetch_housing_info(query):
     try:
-        # Search page or relevant logic for URL
-        search_url = f"{BASE_URL}/search?q={query}"
-        response = requests.get(search_url)
-        response.raise_for_status()
+        base_url = "https://ap-r.ru"
+        visited_urls = set()  # Хранилище для уже посещённых страниц
+        results = []
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+        def crawl_page(url):
+            if url in visited_urls or len(visited_urls) > 100:  # Лимит на количество страниц
+                return
+            visited_urls.add(url)
+            response = requests.get(url)
+            response.raise_for_status()
 
-        # Extracting housing complex details
-        results = soup.find_all('div', class_='complex-card')  # Adjust to actual HTML structure
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            # Ищем карточки с ЖК
+            complexes = soup.find_all('div', class_='complex-card')  # Настрой под реальную структуру сайта
+            for complex_card in complexes:
+                title = complex_card.find('h2').get_text(strip=True)
+                if query.lower() in title.lower():
+                    link = complex_card.find('a')['href']
+                    results.append(f"🏢 {title}\n🔗 {base_url}{link}")
+
+            # Ищем ссылки на другие страницы
+            for link in soup.find_all('a', href=True):
+                absolute_link = requests.compat.urljoin(base_url, link['href'])
+                if base_url in absolute_link and absolute_link not in visited_urls:
+                    crawl_page(absolute_link)
+
+        # Запускаем парсинг с главной страницы
+        crawl_page(base_url)
+
         if not results:
             return "Информация о данном жилом комплексе не найдена."
-
-        info = []
-        for result in results[:5]:  # Limit to top 5 results
-            title = result.find('h2').text.strip()
-            link = result.find('a')['href']
-            info.append(f"🏢 {title}\n🔗 {BASE_URL}{link}")
-
-        return "\n\n".join(info)
+        return "\n\n".join(results[:5])  # Ограничиваем результат до 5 ЖК
 
     except Exception as e:
-        logging.error(f"Error fetching data: {e}")
+        logging.error(f"Ошибка при поиске информации: {e}")
         return "Произошла ошибка при обработке запроса."
 
 # Command /start
