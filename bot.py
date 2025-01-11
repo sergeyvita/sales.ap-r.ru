@@ -2,11 +2,10 @@ import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message
 from aiogram.utils import executor
-import aiohttp
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 import os
-from collections import deque
 
 # Telegram Bot Token
 API_TOKEN = os.getenv("API_TOKEN")
@@ -21,60 +20,74 @@ dp = Dispatcher(bot)
 # Base URL of the website
 BASE_URL = "https://ap-r.ru"
 
-# Function to fetch and parse information about a housing complex
-async def fetch_housing_info(query):
-    visited_urls = set()  # Tracks visited URLs
-    results = []  # Stores results
-    queue = deque([BASE_URL])  # Queue for BFS traversal
-
+async def fetch_cities():
+    """
+    Fetch all city links from the main page.
+    """
     async with ClientSession() as session:
-        while queue and len(visited_urls) < 100:
-            url = queue.popleft()
-            if url in visited_urls:
-                continue
+        async with session.get(BASE_URL) as response:
+            if response.status != 200:
+                logging.error("Failed to load main page")
+                return []
+            
+            html = await response.text()
+            soup = BeautifulSoup(html, 'html.parser')
+            
+            # Find all city links (adjust the class or structure as needed)
+            city_links = soup.find_all('a', href=True, class_='city-link')  # Adjust class name
+            cities = [urljoin(BASE_URL, link['href']) for link in city_links]
+            return cities
 
-            try:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        continue
+async def fetch_housing_info(city_url, query):
+    """
+    Fetch housing information from a specific city's page.
+    """
+    async with ClientSession() as session:
+        async with session.get(city_url) as response:
+            if response.status != 200:
+                logging.error(f"Failed to load city page: {city_url}")
+                return []
+            
+            html = await response.text()
+            soup = BeautifulSoup(html, 'html.parser')
 
-                    html = await response.text()
-                    soup = BeautifulSoup(html, 'html.parser')
-                    visited_urls.add(url)
+            # Find housing complex cards (adjust based on actual site structure)
+            complexes = soup.find_all('div', class_='complex-card')  # Adjust class name
+            results = []
+            for complex_card in complexes:
+                title = complex_card.find('h2').get_text(strip=True)
+                if query.lower() in title.lower():
+                    link = complex_card.find('a')['href']
+                    results.append(f"🏢 {title}\n🔗 {urljoin(BASE_URL, link)}")
+            
+            return results
 
-                    # Find housing complex cards (adjust based on actual site structure)
-                    complexes = soup.find_all('div', class_='complex-card')
-                    for complex_card in complexes:
-                        title = complex_card.find('h2').get_text(strip=True)
-                        if query.lower() in title.lower():
-                            link = complex_card.find('a')['href']
-                            results.append(f"🏢 {title}\n🔗 {BASE_URL}{link}")
-
-                    # Find links to other pages
-                    for link in soup.find_all('a', href=True):
-                        absolute_link = aiohttp.helpers.URL(link['href']).join(BASE_URL)
-                        if str(absolute_link).startswith(BASE_URL) and str(absolute_link) not in visited_urls:
-                            queue.append(str(absolute_link))
-            except Exception as e:
-                logging.error(f"Error fetching URL {url}: {e}")
-
-    if not results:
-        return "Информация о данном жилом комплексе не найдена."
-    return "\n\n".join(results[:5])  # Limit to 5 results
-
-# Command /start
 @dp.message_handler(commands=['start'])
 async def send_welcome(message: Message):
     await message.reply("Привет! Я бот Ассоциации застройщиков. Напиши название жилого комплекса, чтобы получить информацию.")
 
-# Handling user queries
 @dp.message_handler()
 async def search_housing(message: Message):
     query = message.text.strip()
     await message.reply("Ищу информацию, пожалуйста, подождите...")
-    info = await fetch_housing_info(query)
-    await message.reply(info)
+
+    # Fetch city links
+    city_links = await fetch_cities()
+    if not city_links:
+        await message.reply("Не удалось получить список городов.")
+        return
+
+    results = []
+    for city_url in city_links:
+        city_results = await fetch_housing_info(city_url, query)
+        results.extend(city_results)
+        if results:  # Stop searching if we already found results
+            break
+
+    if not results:
+        await message.reply("Информация о данном жилом комплексе не найдена.")
+    else:
+        await message.reply("\n\n".join(results[:5]))  # Limit to 5 results
 
 if __name__ == "__main__":
-    # Start bot
     executor.start_polling(dp, skip_updates=True)
