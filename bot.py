@@ -1,10 +1,13 @@
 import logging
-from aiogram import Bot, Dispatcher, executor, types
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import Message
+from aiogram.utils import executor
 import requests
 from bs4 import BeautifulSoup
 
 # Telegram Bot Token
-API_TOKEN = '7523291164:AAGLdUXewSbBHDDgcFue8nU2-e1F4vE7h6M'
+import os
+API_TOKEN = os.getenv("API_TOKEN")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -45,12 +48,12 @@ def fetch_housing_info(query):
 
 # Command /start
 @dp.message_handler(commands=['start'])
-async def send_welcome(message: types.Message):
+async def send_welcome(message: Message):
     await message.reply("Привет! Я бот Ассоциации застройщиков. Напиши название жилого комплекса, чтобы получить информацию.")
 
 # Handling user queries
 @dp.message_handler()
-async def search_housing(message: types.Message):
+async def search_housing(message: Message):
     query = message.text.strip()
     await message.reply("Ищу информацию, пожалуйста, подождите...")
     info = fetch_housing_info(query)
