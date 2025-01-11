@@ -34,6 +34,17 @@ async def handle_message(message: types.Message):
     logger.info(f"Получен запрос: {query}")
     await message.reply("Ищу информацию, пожалуйста, подождите...")
 
+    # Пример обработки запроса
+    main_page_html = await fetch_page_content(BASE_URL)
+    if not main_page_html:
+        await message.reply("Не удалось загрузить главную страницу.")
+        return
+    
+    # Извлечение данных (здесь можно реализовать парсинг ЖК)
+    # Например, cities = parse_cities(main_page_html)
+
+    await message.reply(f"Информация о '{query}' не найдена.")
+
 # Функция для загрузки содержимого страницы
 async def fetch_page_content(url):
     try:
@@ -51,12 +62,12 @@ async def fetch_page_content(url):
 app = web.Application()
 
 # Тестовый маршрут для проверки
-@app.router.get("/")
 async def index(request):
     return web.Response(text="Сервер работает!")
 
+app.router.add_get("/", index)
+
 # Обработчик вебхуков
-@app.router.post(WEBHOOK_PATH)
 async def handle_webhook(request):
     try:
         data = await request.json()
@@ -67,6 +78,12 @@ async def handle_webhook(request):
         logger.error(f"Ошибка обработки вебхука: {e}")
         return web.Response(text="Ошибка обработки вебхука", status=500)
 
+app.router.add_post(WEBHOOK_PATH, handle_webhook)
+
 # Запуск приложения
 if __name__ == "__main__":
+    logging.info(f"API_TOKEN: {API_TOKEN}")
+    logging.info(f"WEBHOOK_HOST: {WEBHOOK_HOST}")
+    logging.info(f"PORT: {PORT}")
+    logging.info(f"WEBHOOK_URL: {WEBHOOK_URL}")
     web.run_app(app, host="0.0.0.0", port=PORT)
