@@ -12,6 +12,10 @@ PORT = int(os.getenv("PORT", 5000))
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 BASE_URL = "https://ap-r.ru"
 
+# Проверка конфигурации
+if not API_TOKEN or not WEBHOOK_URL:
+    raise ValueError("Необходимые переменные окружения API_TOKEN или WEBHOOK_URL не установлены")
+
 # Логирование
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -84,13 +88,18 @@ async def handle_webhook(request):
         logger.error(f"Ошибка обработки вебхука: {e}")
         return web.Response(text="Ошибка обработки вебхука", status=500)
 
-app.router.add_post(WEBHOOK_URL.split("/")[-1], handle_webhook)
+# Настройка пути вебхука
+webhook_path = WEBHOOK_URL.split("/")[-1]
+if not webhook_path.startswith("/"):
+    webhook_path = f"/{webhook_path}"
+app.router.add_post(webhook_path, handle_webhook)
 
 # Запуск приложения
 if __name__ == "__main__":
     logger.info(f"API_TOKEN: {API_TOKEN}")
     logger.info(f"WEBHOOK_URL: {WEBHOOK_URL}")
     logger.info(f"PORT: {PORT}")
+    logger.info(f"WEBHOOK_PATH: {webhook_path}")
     try:
         logger.info("Запуск приложения...")
         web.run_app(app, host="0.0.0.0", port=PORT)
