@@ -2,11 +2,11 @@ import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message
 from aiogram.utils import executor
-import requests
-from bs4 import BeautifulSoup
 import aiohttp
-import asyncio
+from aiohttp import ClientSession
+from bs4 import BeautifulSoup
 import os
+from collections import deque
 
 # Telegram Bot Token
 API_TOKEN = os.getenv("API_TOKEN")
@@ -22,45 +22,45 @@ dp = Dispatcher(bot)
 BASE_URL = "https://ap-r.ru"
 
 # Function to fetch and parse information about a housing complex
-def fetch_housing_info(query):
-    try:
-        base_url = "https://ap-r.ru"
-        visited_urls = set()  # Хранилище для уже посещённых страниц
-        results = []
+async def fetch_housing_info(query):
+    visited_urls = set()  # Tracks visited URLs
+    results = []  # Stores results
+    queue = deque([BASE_URL])  # Queue for BFS traversal
 
-        def crawl_page(url):
-            if url in visited_urls or len(visited_urls) > 100:  # Лимит на количество страниц
-                return
-            visited_urls.add(url)
-            response = requests.get(url)
-            response.raise_for_status()
+    async with ClientSession() as session:
+        while queue and len(visited_urls) < 100:
+            url = queue.popleft()
+            if url in visited_urls:
+                continue
 
-            soup = BeautifulSoup(response.text, 'html.parser')
+            try:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        continue
 
-            # Ищем карточки с ЖК
-            complexes = soup.find_all('div', class_='complex-card')  # Настрой под реальную структуру сайта
-            for complex_card in complexes:
-                title = complex_card.find('h2').get_text(strip=True)
-                if query.lower() in title.lower():
-                    link = complex_card.find('a')['href']
-                    results.append(f"🏢 {title}\n🔗 {base_url}{link}")
+                    html = await response.text()
+                    soup = BeautifulSoup(html, 'html.parser')
+                    visited_urls.add(url)
 
-            # Ищем ссылки на другие страницы
-            for link in soup.find_all('a', href=True):
-                absolute_link = requests.compat.urljoin(base_url, link['href'])
-                if base_url in absolute_link and absolute_link not in visited_urls:
-                    crawl_page(absolute_link)
+                    # Find housing complex cards (adjust based on actual site structure)
+                    complexes = soup.find_all('div', class_='complex-card')
+                    for complex_card in complexes:
+                        title = complex_card.find('h2').get_text(strip=True)
+                        if query.lower() in title.lower():
+                            link = complex_card.find('a')['href']
+                            results.append(f"🏢 {title}\n🔗 {BASE_URL}{link}")
 
-        # Запускаем парсинг с главной страницы
-        crawl_page(base_url)
+                    # Find links to other pages
+                    for link in soup.find_all('a', href=True):
+                        absolute_link = aiohttp.helpers.URL(link['href']).join(BASE_URL)
+                        if str(absolute_link).startswith(BASE_URL) and str(absolute_link) not in visited_urls:
+                            queue.append(str(absolute_link))
+            except Exception as e:
+                logging.error(f"Error fetching URL {url}: {e}")
 
-        if not results:
-            return "Информация о данном жилом комплексе не найдена."
-        return "\n\n".join(results[:5])  # Ограничиваем результат до 5 ЖК
-
-    except Exception as e:
-        logging.error(f"Ошибка при поиске информации: {e}")
-        return "Произошла ошибка при обработке запроса."
+    if not results:
+        return "Информация о данном жилом комплексе не найдена."
+    return "\n\n".join(results[:5])  # Limit to 5 results
 
 # Command /start
 @dp.message_handler(commands=['start'])
@@ -72,22 +72,9 @@ async def send_welcome(message: Message):
 async def search_housing(message: Message):
     query = message.text.strip()
     await message.reply("Ищу информацию, пожалуйста, подождите...")
-    info = fetch_housing_info(query)
+    info = await fetch_housing_info(query)
     await message.reply(info)
 
-# Debug function to test Telegram API connection
-async def test_telegram_connection():
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get("https://api.telegram.org") as response:
-                print(await response.text())
-    except Exception as e:
-        print(f"Ошибка подключения к Telegram API: {e}")
-
-# Run debug test
 if __name__ == "__main__":
-    # Test Telegram API connection
-    asyncio.run(test_telegram_connection())
-    
     # Start bot
     executor.start_polling(dp, skip_updates=True)
