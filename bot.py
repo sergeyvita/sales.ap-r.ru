@@ -8,7 +8,7 @@ import os
 
 # Конфигурация из переменных окружения
 API_TOKEN = os.getenv("API_TOKEN")
-PORT = int(os.getenv("PORT"))
+PORT = int(os.getenv("PORT", 5000))
 WEBHOOK_HOST = os.getenv("WEBHOOK_HOST")
 WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
@@ -17,6 +17,12 @@ BASE_URL = "https://ap-r.ru"
 # Логирование
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Проверка переменных окружения
+logger.info(f"API_TOKEN: {API_TOKEN}")
+logger.info(f"WEBHOOK_HOST: {WEBHOOK_HOST}")
+logger.info(f"PORT: {PORT}")
+logger.info(f"WEBHOOK_URL: {WEBHOOK_URL}")
 
 # Инициализация бота и диспетчера
 bot = Bot(token=API_TOKEN)
@@ -29,7 +35,7 @@ async def fetch_page_content(url):
         async with web.ClientSession() as session:
             async with session.get(url) as response:
                 if response.status != 200:
-                    logger.error(f"Не удалось загрузить страницу: {url}")
+                    logger.error(f"Не удалось загрузить страницу: {url}, статус: {response.status}")
                     return None
                 return await response.text()
     except Exception as e:
@@ -102,18 +108,15 @@ async def handle_query(message: types.Message):
 async def handle_webhook(request):
     """Обработчик вебхука"""
     try:
+        logger.info("Получен вебхук.")
         data = await request.json()
-        logger.info(f"Получен запрос на вебхук: {data}")
+        logger.info(f"Данные вебхука: {data}")
         update = Update.to_object(data)
         await dp.process_update(update)
         return web.Response(text="OK")
     except Exception as e:
         logger.error(f"Ошибка обработки вебхука: {e}")
         return web.Response(text="Ошибка сервера", status=500)
-
-# Проверка сервера
-async def health_check(request):
-    return web.Response(text="Сервер работает!")
 
 # Запуск вебхуков
 async def on_startup(dp):
@@ -127,7 +130,7 @@ async def on_shutdown(dp):
 # Создание веб-приложения
 app = web.Application()
 app.router.add_post(WEBHOOK_PATH, handle_webhook)
-app.router.add_get("/", health_check)
 
 if __name__ == "__main__":
+    logger.info("Запуск приложения...")
     web.run_app(app, host="0.0.0.0", port=PORT)
