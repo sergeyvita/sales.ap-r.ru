@@ -4,9 +4,11 @@ from aiogram.types import Message
 from aiogram.utils import executor
 import requests
 from bs4 import BeautifulSoup
+import aiohttp
+import asyncio
+import os
 
 # Telegram Bot Token
-import os
 API_TOKEN = os.getenv("API_TOKEN")
 
 # Configure logging
@@ -15,6 +17,9 @@ logging.basicConfig(level=logging.INFO)
 # Initialize bot and dispatcher
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
+
+# Base URL of the website
+BASE_URL = "https://ap-r.ru"
 
 # Function to fetch and parse information about a housing complex
 def fetch_housing_info(query):
@@ -70,5 +75,19 @@ async def search_housing(message: Message):
     info = fetch_housing_info(query)
     await message.reply(info)
 
-if __name__ == '__main__':
+# Debug function to test Telegram API connection
+async def test_telegram_connection():
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://api.telegram.org") as response:
+                print(await response.text())
+    except Exception as e:
+        print(f"Ошибка подключения к Telegram API: {e}")
+
+# Run debug test
+if __name__ == "__main__":
+    # Test Telegram API connection
+    asyncio.run(test_telegram_connection())
+    
+    # Start bot
     executor.start_polling(dp, skip_updates=True)
