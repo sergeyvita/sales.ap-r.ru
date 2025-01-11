@@ -1,15 +1,16 @@
 import logging
 from aiogram import Bot, Dispatcher, types
+from aiogram.types import Update
 from aiogram.utils.executor import start_webhook
-from aiohttp import ClientSession
+from aiohttp import web
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import os
 
-# Конфигурация
-API_TOKEN = os.getenv("API_TOKEN", "7523291164:AAGLdUXewSbBHDDgcFue8nU2-e1F4vE7h6M")
-PORT = int(os.getenv("PORT", 5000))
-WEBHOOK_HOST = os.getenv("WEBHOOK_HOST", "https://sales-ap-r-ru.onrender.com")
+# Конфигурация из переменных окружения
+API_TOKEN = os.getenv("API_TOKEN")
+PORT = int(os.getenv("PORT"))
+WEBHOOK_HOST = os.getenv("WEBHOOK_HOST")
 WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 BASE_URL = "https://ap-r.ru"
@@ -22,10 +23,11 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
+# Асинхронные функции для загрузки и парсинга данных
 async def fetch_page_content(url):
     """Загрузка содержимого страницы"""
     try:
-        async with ClientSession() as session:
+        async with web.ClientSession() as session:
             async with session.get(url) as response:
                 if response.status != 200:
                     logger.error(f"Не удалось загрузить страницу: {url}")
@@ -60,6 +62,7 @@ def parse_complexes(city_page_html):
         logger.error(f"Ошибка парсинга ЖК: {e}")
         return []
 
+# Обработчики сообщений
 @dp.message_handler(commands=['start', 'help'])
 async def send_welcome(message: types.Message):
     await message.reply("Привет! Напиши название жилого комплекса, чтобы я нашел информацию.")
@@ -71,19 +74,16 @@ async def handle_query(message: types.Message):
 
     await message.reply("Ищу информацию, подождите...")
 
-    # Загрузка главной страницы
     main_page_html = await fetch_page_content(BASE_URL)
     if not main_page_html:
         await message.reply("Не удалось загрузить главную страницу сайта.")
         return
 
-    # Парсинг городов
     cities = parse_cities(main_page_html)
     if not cities:
         await message.reply("Не удалось найти города на сайте.")
         return
 
-    # Поиск ЖК в городах
     for city_name, city_url in cities.items():
         logger.info(f"Обрабатываю город: {city_name}, URL: {city_url}")
         city_page_html = await fetch_page_content(city_url)
@@ -99,6 +99,19 @@ async def handle_query(message: types.Message):
 
     await message.reply("Информация о данном жилом комплексе не найдена.")
 
+# Вебхуки
+async def handle_webhook(request):
+    """Обработчик вебхука"""
+    try:
+        data = await request.json()
+        update = Update.to_object(data)
+        await dp.process_update(update)
+        return web.Response(text="OK")
+    except Exception as e:
+        logger.error(f"Ошибка обработки вебхука: {e}")
+        return web.Response(status=500)
+
+# Запуск вебхуков
 async def on_startup(dp):
     await bot.set_webhook(WEBHOOK_URL)
     logger.info(f"Webhook установлен: {WEBHOOK_URL}")
@@ -107,12 +120,9 @@ async def on_shutdown(dp):
     await bot.delete_webhook()
     logger.info("Webhook удалён.")
 
+# Создание веб-приложения
+app = web.Application()
+app.router.add_post(WEBHOOK_PATH, handle_webhook)
+
 if __name__ == "__main__":
-    start_webhook(
-        dispatcher=dp,
-        webhook_path=WEBHOOK_PATH,
-        on_startup=on_startup,
-        on_shutdown=on_shutdown,
-        host="0.0.0.0",
-        port=PORT,
-    )
+    web.run_app(app, host="0.0.0.0", port=PORT)
