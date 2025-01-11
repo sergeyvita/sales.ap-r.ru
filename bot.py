@@ -104,6 +104,7 @@ async def handle_webhook(request):
     """Обработчик вебхука"""
     try:
         data = await request.json()
+        logger.info(f"Получен запрос: {data}")
         update = Update.to_object(data)
         await dp.process_update(update)
         return web.Response(text="OK")
