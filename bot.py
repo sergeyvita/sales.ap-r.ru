@@ -3,6 +3,8 @@ import logging
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.middlewares.logging import LoggingMiddleware
+from aiogram.utils.executor import start_webhook
+from aiogram.types.base import Bot as AiogramBot
 from bs4 import BeautifulSoup
 import requests
 
@@ -22,8 +24,8 @@ bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 dp.middleware.setup(LoggingMiddleware())
 
-# Aiohttp приложение
-app = web.Application()
+# Установка текущего бота для контекста
+AiogramBot.set_current(bot)
 
 # Главная страница сайта
 BASE_URL = "https://ap-r.ru"
@@ -121,35 +123,27 @@ async def handle_message(message: types.Message):
         await message.reply("Произошла ошибка при поиске. Попробуйте позже.")
 
 
-async def handle_webhook(request):
-    """Обработка вебхуков."""
-    data = await request.json()
-    logger.info(f"Получен вебхук: {data}")
-    update = types.Update(**data)
-    await dp.process_update(update)
-    return web.Response(status=200)
-
-
-async def on_startup(app):
+async def on_startup(dp):
     """Действия при старте."""
     logger.info("Установка вебхука...")
     await bot.set_webhook(WEBHOOK_URL)
 
 
-async def on_shutdown(app):
+async def on_shutdown(dp):
     """Действия при завершении."""
     logger.info("Удаление вебхука...")
     await bot.delete_webhook()
 
 
-# Настройка маршрутов
-app.router.add_post(WEBHOOK_PATH, handle_webhook)
-
-# Настройка старта и завершения приложения
-app.on_startup.append(on_startup)
-app.on_shutdown.append(on_shutdown)
-
-# Запуск приложения
+# Запуск вебхука
 if __name__ == "__main__":
     logger.info("Запуск приложения...")
-    web.run_app(app, host="0.0.0.0", port=PORT)
+    start_webhook(
+        dispatcher=dp,
+        webhook_path=WEBHOOK_PATH,
+        on_startup=on_startup,
+        on_shutdown=on_shutdown,
+        skip_updates=True,
+        host="0.0.0.0",
+        port=PORT,
+    )
