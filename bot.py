@@ -30,13 +30,12 @@ app = web.Application()
 
 # Функция парсинга городов с главной страницы
 def get_city_links():
-    """Получить ссылки на города с главной страницы."""
     try:
         response = requests.get(BASE_URL)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
         city_links = {}
-        for link in soup.select("a.city-link"):  # Замените `a.city-link` на реальный селектор
+        for link in soup.select("a.city-link"):
             city_name = link.text.strip()
             city_url = BASE_URL + link["href"]
             city_links[city_name] = city_url
@@ -47,33 +46,18 @@ def get_city_links():
 
 # Функция парсинга ЖК в городе
 def get_housing_complex_links(city_url):
-    """Получить ссылки на ЖК с страницы города."""
     try:
         response = requests.get(city_url)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
         housing_complexes = {}
-        for link in soup.select("a.complex-link"):  # Замените `a.complex-link` на реальный селектор
+        for link in soup.select("a.complex-link"):
             complex_name = link.text.strip()
             complex_url = BASE_URL + link["href"]
             housing_complexes[complex_name] = complex_url
         return housing_complexes
     except Exception as e:
         logger.error(f"Ошибка парсинга ЖК: {e}")
-        return {}
-
-# Функция парсинга деталей ЖК
-def get_housing_complex_details(complex_url):
-    """Получить детали ЖК с его страницы."""
-    try:
-        response = requests.get(complex_url)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-        description = soup.select_one("div.description").text.strip()  # Уточните селекторы
-        details = soup.select_one("div.details").text.strip()
-        return {"description": description, "details": details}
-    except Exception as e:
-        logger.error(f"Ошибка парсинга деталей ЖК: {e}")
         return {}
 
 # Хендлер для команды /start
@@ -87,13 +71,11 @@ async def handle_message(message: types.Message):
     query = message.text.strip()
     await message.reply("Ищу информацию...")
 
-    # Получение списка городов
     city_links = get_city_links()
     if not city_links:
         await message.reply("Не удалось получить список городов. Попробуйте позже.")
         return
 
-    # Поиск города или ЖК
     for city_name, city_url in city_links.items():
         if query.lower() in city_name.lower():
             housing_complexes = get_housing_complex_links(city_url)
@@ -106,18 +88,6 @@ async def handle_message(message: types.Message):
             await message.reply(reply)
             return
 
-        housing_complexes = get_housing_complex_links(city_url)
-        for complex_name, complex_url in housing_complexes.items():
-            if query.lower() in complex_name.lower():
-                details = get_housing_complex_details(complex_url)
-                reply = f"Информация о ЖК {complex_name}:\n"
-                reply += f"Описание: {details.get('description', 'Не найдено')}\n"
-                reply += f"Детали: {details.get('details', 'Не найдено')}\n"
-                await message.reply(reply)
-                return
-
-    await message.reply("Не удалось найти информацию. Убедитесь, что запрос правильный.")
-
 # Маршрут тестирования
 async def test_handler(request):
     return web.json_response({"status": "ok", "message": "Test route is working!"})
@@ -125,6 +95,7 @@ async def test_handler(request):
 # Маршрут для вебхука
 async def handle_webhook(request):
     try:
+        Bot.set_current(bot)  # Устанавливаем текущий экземпляр бота
         data = await request.json()
         logger.info(f"Получен вебхук: {data}")
         update = types.Update(**data)
