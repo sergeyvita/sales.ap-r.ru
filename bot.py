@@ -25,13 +25,15 @@ app = web.Application()
 
 # Маршрут тестирования
 async def test_handler(request):
+    logger.info("Получен запрос на тестовый маршрут")
     return web.json_response({"status": "ok", "message": "Test route is working!"})
 
 # Маршрут для вебхука
 async def handle_webhook(request):
     try:
+        logger.info("Получен запрос на вебхук")
         data = await request.json()
-        logger.info(f"Получен вебхук: {data}")
+        logger.info(f"Данные запроса: {data}")
         update = types.Update(**data)
         await dp.process_update(update)
     except Exception as e:
