@@ -6,9 +6,7 @@ from aiogram.contrib.middlewares.logging import LoggingMiddleware
 
 # Инициализация переменных окружения
 API_TOKEN = os.getenv("API_TOKEN")
-WEBHOOK_HOST = os.getenv("WEBHOOK_HOST")
-WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
-WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Берем готовый URL вебхука из окружения
 PORT = int(os.getenv("PORT", 5000))
 
 # Инициализация логирования
@@ -41,6 +39,7 @@ async def handle_webhook(request):
     return web.Response(status=200)
 
 # Настройка маршрутов
+WEBHOOK_PATH = WEBHOOK_URL.replace(f"{os.getenv('WEBHOOK_HOST')}", "")  # Вычисляем путь из полного URL
 app.router.add_post("/test", test_handler)  # Тестовый маршрут
 app.router.add_post(WEBHOOK_PATH, handle_webhook)  # Вебхук маршрут
 
