@@ -1,127 +1,102 @@
-import os
 import logging
-from aiohttp import web
+import os
 from aiogram import Bot, Dispatcher, types
-from aiogram.contrib.middlewares.logging import LoggingMiddleware
+from aiogram.types import ParseMode
+from aiogram.utils.executor import start_webhook
+from aiohttp import web
 from bs4 import BeautifulSoup
-import requests
+import aiohttp
 
-# Инициализация переменных окружения
+# Настройка логирования
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+# Переменные окружения
 API_TOKEN = os.getenv("API_TOKEN")
 WEBHOOK_HOST = os.getenv("WEBHOOK_HOST")
 WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 PORT = int(os.getenv("PORT", 5000))
 
-# Логирование
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
-
 # Инициализация бота и диспетчера
-bot = Bot(token=API_TOKEN)
+bot = Bot(token=API_TOKEN, parse_mode=ParseMode.HTML)
+Bot.set_current(bot)  # Устанавливаем текущий экземпляр бота
 dp = Dispatcher(bot)
-dp.middleware.setup(LoggingMiddleware())
 
-# Aiohttp приложение
-app = web.Application()
-
-# Главная страница сайта
-BASE_URL = "https://ap-r.ru"
-
-
-async def parse_cities():
-    """Парсинг списка городов с главной страницы."""
-    logger.debug("Начинаю парсинг списка городов из блока <select id='header_cities'>...")
-    response = requests.get(BASE_URL)
-    soup = BeautifulSoup(response.text, "html.parser")
-    city_select = soup.find("select", {"id": "header_cities"})
-
-    cities = {}
-    if city_select:
-        options = city_select.find_all("option")
-        for option in options:
-            city_name = option.text.strip()
-            city_url = BASE_URL + option["value"]
-            if city_name != "Город не выбран":
-                cities[city_name] = city_url
-                logger.debug(f"Найдена ссылка на город: {city_name} -> {city_url}")
-    logger.info(f"Итоговый список городов: {cities}")
-    return cities
-
-
-async def find_complex(city_url, query):
-    """Поиск ЖК или МКР на странице города."""
-    logger.debug(f"Начинаю поиск ЖК или МКР '{query}' на странице {city_url}...")
-    response = requests.get(city_url)
-    soup = BeautifulSoup(response.text, "html.parser")
-    objects = soup.find_all("div", class_="object-tile-content-detail match-height")
-
-    for obj in objects:
-        title = obj.find("a", class_="object-tile-title").text.strip()
-        if query.lower() in title.lower():
-            details_url = BASE_URL + obj.find("a", class_="object-tile-title")["href"]
-            logger.debug(f"Найден объект: {title} -> {details_url}")
-            return title, details_url
-    return None, None
-
-
-async def fetch_complex_details(details_url):
-    """Извлечение информации о ЖК или МКР."""
-    logger.debug(f"Парсинг информации о ЖК/МКР со страницы {details_url}...")
-    response = requests.get(details_url)
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    # Извлекаем название ЖК
-    title = soup.find("h2", class_="default-h2").text.strip()
-
-    # Извлекаем описание
-    description_block = soup.find("div", class_="croptext-content")
-    description = description_block.get_text(strip=True) if description_block else "Описание отсутствует."
-
-    logger.debug(f"Данные о ЖК/МКР: {title} - {description}")
-    return title, description
-
+# Обработчик сообщений
+@dp.message_handler(commands=["start", "help"])
+async def send_welcome(message: types.Message):
+    await message.reply("Привет! Я бот Ассоциации застройщиков. Напишите название ЖК, чтобы получить информацию.")
 
 @dp.message_handler()
 async def handle_message(message: types.Message):
-    """Обработчик сообщений от пользователя."""
     query = message.text.strip()
     logger.info(f"Получен запрос на поиск ЖК: '{query}' от пользователя {message.from_user.id}")
 
-    await message.reply(f"Ищу информацию о ЖК '{query}'...")
+    try:
+        await message.reply(f"Ищу информацию о ЖК '{query}'...")
+        
+        # Парсинг главной страницы
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://ap-r.ru") as response:
+                html = await response.text()
+                soup = BeautifulSoup(html, "html.parser")
 
-    # Парсинг городов
-    cities = await parse_cities()
+                # Парсим список городов
+                cities = {}
+                select = soup.find("select", id="header_cities")
+                if select:
+                    for option in select.find_all("option"):
+                        if option.get("value") and option["value"] != "/":
+                            cities[option.text.strip()] = f"https://ap-r.ru{option['value']}"
 
-    # Поиск ЖК в каждом городе
-    for city_name, city_url in cities.items():
-        title, details_url = await find_complex(city_url, query)
-        if details_url:
-            title, description = await fetch_complex_details(details_url)
-            await message.reply(f"**{title}**\n{description}")
-            return
+                logger.info(f"Итоговый список городов: {cities}")
 
-    # Если ничего не найдено
-    await message.reply(f"ЖК '{query}' не найден. Попробуйте уточнить запрос.")
+                # Ищем ЖК в каждом городе
+                for city_name, city_url in cities.items():
+                    logger.debug(f"Ищу ЖК '{query}' в городе {city_name} ({city_url})")
+                    async with session.get(city_url) as city_response:
+                        city_html = await city_response.text()
+                        city_soup = BeautifulSoup(city_html, "html.parser")
 
+                        # Ищем блок ЖК
+                        tile = city_soup.find("a", class_="object-tile-title", string=lambda text: text and query.lower() in text.lower())
+                        if tile:
+                            full_url = f"https://ap-r.ru{tile['href']}"
+                            logger.info(f"Найден ЖК: {query} -> {full_url}")
+                            await message.reply(f"Найден ЖК: {query}\n{full_url}")
+                            return
 
+        # Если ЖК не найден
+        await message.reply(f"ЖК '{query}' не найден. Попробуйте уточнить запрос.")
+    except Exception as e:
+        logger.error(f"Ошибка при обработке запроса: {e}")
+        await message.reply("Произошла ошибка при поиске. Попробуйте позже.")
+
+# Настройка вебхука
+async def on_startup(app):
+    logger.info("Установка вебхука...")
+    await bot.set_webhook(WEBHOOK_URL)
+
+async def on_shutdown(app):
+    logger.info("Удаление вебхука...")
+    await bot.delete_webhook()
+
+# Маршрут для обработки вебхуков
 async def handle_webhook(request):
-    """Обработка вебхуков."""
-    data = await request.json()
-    logger.info(f"Получен вебхук: {data}")
-    update = types.Update(**data)
+    update = await request.json()
+    logger.info(f"Получен вебхук: {update}")
+    update = types.Update.to_object(update)
     await dp.process_update(update)
-    return web.Response(status=200)
+    return web.Response()
 
-
-# Настройка маршрутов
+# Настройка приложения Aiohttp
+app = web.Application()
 app.router.add_post(WEBHOOK_PATH, handle_webhook)
+app.on_startup.append(on_startup)
+app.on_shutdown.append(on_shutdown)
 
 # Запуск приложения
 if __name__ == "__main__":
-    logger.info("Инициализация приложения...")
-    logger.info(f"API_TOKEN: {API_TOKEN}")
-    logger.info(f"WEBHOOK_URL: {WEBHOOK_URL}")
-    logger.info(f"PORT: {PORT}")
-    logger.info(f"WEBHOOK_PATH: {WEBHOOK_PATH}")
-    web.run_app(app, host="0.0.0.0", port=PORT)
+    logger.info("Запуск приложения...")
+    start_webhook(dispatcher=dp, webhook_path=WEBHOOK_PATH, on_startup=on_startup, on_shutdown=on_shutdown, skip_updates=True, port=PORT, host="0.0.0.0", web_app=app)
