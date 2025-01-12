@@ -7,8 +7,8 @@ from aiogram.contrib.middlewares.logging import LoggingMiddleware
 # Инициализация переменных окружения
 API_TOKEN = os.getenv("API_TOKEN")
 WEBHOOK_HOST = os.getenv("WEBHOOK_HOST")
-WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
-WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+WEBHOOK_PATH = WEBHOOK_URL.replace(os.getenv("WEBHOOK_HOST"), "")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 PORT = int(os.getenv("PORT", 5000))
 
 # Инициализация логирования
