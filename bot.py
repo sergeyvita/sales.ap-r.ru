@@ -4,7 +4,6 @@ from aiohttp import web
 from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.middlewares.logging import LoggingMiddleware
 from aiogram.utils.executor import start_webhook
-from aiogram.types.base import Bot as AiogramBot
 from bs4 import BeautifulSoup
 import requests
 
@@ -25,7 +24,7 @@ dp = Dispatcher(bot)
 dp.middleware.setup(LoggingMiddleware())
 
 # Установка текущего бота для контекста
-AiogramBot.set_current(bot)
+Bot.set_current(bot)
 
 # Главная страница сайта
 BASE_URL = "https://ap-r.ru"
