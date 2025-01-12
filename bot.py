@@ -60,7 +60,10 @@ app.router.add_post(WEBHOOK_PATH, handle_webhook)
 
 logger.info("Зарегистрированные маршруты:")
 for route in app.router.routes():
-    logger.info(f"Маршрут: {route.method} {route.path}")
+    if hasattr(route.resource, 'canonical'):
+        logger.info(f"Маршрут: {route.method} {route.resource.canonical}")
+    else:
+        logger.info(f"Маршрут: {route.method} без пути")
 
 # Запуск приложения
 if __name__ == "__main__":
