@@ -26,9 +26,19 @@ logger.info("Инициализация бота и диспетчера...")
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
+# Временный тестовый обработчик для всех запросов
+async def temporary_handler(request):
+    logger.info("Получен временный запрос")
+    try:
+        data = await request.json()
+        logger.info(f"Данные запроса: {data}")
+        return web.Response(text="Вебхук получен!", status=200)
+    except Exception as e:
+        logger.error(f"Ошибка временного обработчика: {e}")
+        return web.Response(text="Ошибка обработки", status=500)
+
 # Асинхронная загрузка содержимого страницы
 async def fetch_page_content(url):
-    """Загрузка содержимого страницы."""
     logger.info(f"Загрузка страницы: {url}")
     try:
         async with ClientSession() as session:
@@ -40,78 +50,6 @@ async def fetch_page_content(url):
     except Exception as e:
         logger.error(f"Ошибка загрузки страницы {url}: {e}")
         return None
-
-# Парсинг городов
-def parse_cities(main_page_html):
-    """Извлечение ссылок на города с главной страницы."""
-    try:
-        soup = BeautifulSoup(main_page_html, 'html.parser')
-        city_links = soup.select('a.city-link')  # Обновите селектор на актуальный
-        cities = {link.text.strip(): urljoin(BASE_URL, link['href']) for link in city_links}
-        logger.info(f"Найдены города: {list(cities.keys())}")
-        return cities
-    except Exception as e:
-        logger.error(f"Ошибка парсинга городов: {e}")
-        return {}
-
-# Парсинг ЖК
-def parse_complexes(city_page_html):
-    """Извлечение информации о ЖК на странице города."""
-    try:
-        soup = BeautifulSoup(city_page_html, 'html.parser')
-        complex_cards = soup.select('div.complex-card')  # Обновите селектор на актуальный
-        complexes = []
-        for card in complex_cards:
-            name = card.select_one('h2').text.strip()
-            link = urljoin(BASE_URL, card.select_one('a')['href'])
-            complexes.append({'name': name, 'link': link})
-        logger.info(f"Найдено ЖК: {[c['name'] for c in complexes]}")
-        return complexes
-    except Exception as e:
-        logger.error(f"Ошибка парсинга ЖК: {e}")
-        return []
-
-# Обработчик команды /start
-@dp.message_handler(commands=['start'])
-async def handle_start(message: types.Message):
-    logger.info("Получена команда /start")
-    await message.reply("Бот запущен. Напишите название ЖК для поиска.")
-    logger.info("Ответ отправлен пользователю")
-
-# Обработчик сообщений
-@dp.message_handler()
-async def handle_message(message: types.Message):
-    query = message.text.strip()
-    logger.info(f"Получено сообщение от пользователя: {query}")
-    await message.reply("Ищу информацию, подождите...")
-
-    # Загрузка главной страницы
-    main_page_html = await fetch_page_content(BASE_URL)
-    if not main_page_html:
-        await message.reply("Ошибка: не удалось загрузить главную страницу сайта.")
-        return
-
-    # Парсинг городов
-    cities = parse_cities(main_page_html)
-    if not cities:
-        await message.reply("Не удалось найти города на сайте.")
-        return
-
-    # Поиск ЖК
-    for city_name, city_url in cities.items():
-        logger.info(f"Обрабатываю город: {city_name}")
-        city_page_html = await fetch_page_content(city_url)
-        if not city_page_html:
-            logger.warning(f"Не удалось загрузить страницу города: {city_name}")
-            continue
-
-        complexes = parse_complexes(city_page_html)
-        for complex_ in complexes:
-            if query.lower() in complex_['name'].lower():
-                await message.reply(f"Найден ЖК: {complex_['name']}\nСсылка: {complex_['link']}")
-                return
-
-    await message.reply("Информация о данном жилом комплексе не найдена.")
 
 # Обработчик вебхуков
 async def handle_webhook(request):
@@ -135,6 +73,7 @@ async def index(request):
 app = web.Application()
 app.router.add_get("/", index)
 app.router.add_post(WEBHOOK_PATH, handle_webhook)
+app.router.add_post("/test", temporary_handler)  # Временный маршрут для тестов
 
 # Запуск приложения
 if __name__ == "__main__":
