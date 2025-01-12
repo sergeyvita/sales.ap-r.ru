@@ -1,9 +1,13 @@
 import os
 import logging
+import requests
 from aiohttp import web
+from bs4 import BeautifulSoup
 from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.middlewares.logging import LoggingMiddleware
-from bs4 import BeautifulSoup
+
+# Настройки
+BASE_URL = "https://ap-r.ru"
 
 # Инициализация переменных окружения
 API_TOKEN = os.getenv("API_TOKEN")
@@ -21,64 +25,102 @@ bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 dp.middleware.setup(LoggingMiddleware())
 
-# Инициализация приложения Aiohttp
+# Инициализация Aiohttp приложения
 app = web.Application()
 
-# Заготовка данных для парсинга (загруженные страницы)
-HTML_PAGES = {
-    "Краснодар": "Краснодар.html",
-    "Новороссийск": "Новороссийск.html",
-    "Анапа": "Анапа.html",
-    "Сочи и Архыз": "Сочи и Архыз.html",
-    "Темрюк и Тамань": "Темрюк и Тамань.html",
-    "Туапсинский район": "Туапсинский район.html",
-    "Ростов-на-Дону": "Ростов-на-Дону.html",
-    "Батайск": "Батайск.html",
-    "Крым": "Крым.html",
-    "Майкоп": "Майкоп.html",
-}
-
-# Функция для поиска ЖК
-def find_housing_complex(city: str, complex_name: str):
-    """Ищет информацию о жилом комплексе на соответствующей странице города."""
-    file_name = HTML_PAGES.get(city)
-    if not file_name:
-        return f"Город '{city}' не найден в базе данных."
-
+# Функция парсинга городов с главной страницы
+def get_city_links():
+    """Получить ссылки на города с главной страницы."""
     try:
-        with open(file_name, 'r', encoding='utf-8') as file:
-            soup = BeautifulSoup(file, 'html.parser')
-            # Пример: поиск карточки ЖК (заменить 'class_name' на реальный класс HTML-блока)
-            cards = soup.find_all('div', class_='class_name')
-            for card in cards:
-                title = card.find('h3').text.strip()  # Заголовок ЖК
-                if complex_name.lower() in title.lower():
-                    description = card.find('p').text.strip()  # Описание ЖК
-                    return f"ЖК: {title}\nОписание: {description}"
-            return f"Жилой комплекс '{complex_name}' в городе '{city}' не найден."
+        response = requests.get(BASE_URL)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        city_links = {}
+        for link in soup.select("a.city-link"):  # Замените `a.city-link` на реальный селектор
+            city_name = link.text.strip()
+            city_url = BASE_URL + link["href"]
+            city_links[city_name] = city_url
+        return city_links
     except Exception as e:
-        logger.error(f"Ошибка парсинга файла {file_name}: {e}")
-        return "Произошла ошибка при поиске информации. Попробуйте позже."
+        logger.error(f"Ошибка парсинга городов: {e}")
+        return {}
 
-# Обработчик сообщений
-@dp.message_handler(commands=['start'])
-async def start_command(message: types.Message):
-    await message.reply("Привет! Я бот Ассоциации застройщиков. Введите запрос в формате:\nГород, ЖК Название")
+# Функция парсинга ЖК в городе
+def get_housing_complex_links(city_url):
+    """Получить ссылки на ЖК с страницы города."""
+    try:
+        response = requests.get(city_url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        housing_complexes = {}
+        for link in soup.select("a.complex-link"):  # Замените `a.complex-link` на реальный селектор
+            complex_name = link.text.strip()
+            complex_url = BASE_URL + link["href"]
+            housing_complexes[complex_name] = complex_url
+        return housing_complexes
+    except Exception as e:
+        logger.error(f"Ошибка парсинга ЖК: {e}")
+        return {}
 
+# Функция парсинга деталей ЖК
+def get_housing_complex_details(complex_url):
+    """Получить детали ЖК с его страницы."""
+    try:
+        response = requests.get(complex_url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        description = soup.select_one("div.description").text.strip()  # Уточните селекторы
+        details = soup.select_one("div.details").text.strip()
+        return {"description": description, "details": details}
+    except Exception as e:
+        logger.error(f"Ошибка парсинга деталей ЖК: {e}")
+        return {}
+
+# Хендлер для команды /start
+@dp.message_handler(commands=["start"])
+async def send_welcome(message: types.Message):
+    await message.reply("Добро пожаловать! Напишите название города или ЖК, чтобы получить информацию.")
+
+# Хендлер для обработки текстовых сообщений
 @dp.message_handler()
 async def handle_message(message: types.Message):
-    try:
-        query = message.text.split(',')  # Ожидаем формат: "Город, ЖК Название"
-        if len(query) < 2:
-            await message.reply("Введите запрос в формате: Город, ЖК Название")
+    query = message.text.strip()
+    await message.reply("Ищу информацию...")
+
+    # Получение списка городов
+    city_links = get_city_links()
+    if not city_links:
+        await message.reply("Не удалось получить список городов. Попробуйте позже.")
+        return
+
+    # Поиск города или ЖК
+    for city_name, city_url in city_links.items():
+        if query.lower() in city_name.lower():
+            housing_complexes = get_housing_complex_links(city_url)
+            if not housing_complexes:
+                await message.reply(f"Не удалось найти ЖК в городе {city_name}.")
+                return
+            reply = f"Найдено в городе {city_name}:\n"
+            for complex_name, complex_url in housing_complexes.items():
+                reply += f"- {complex_name}: {complex_url}\n"
+            await message.reply(reply)
             return
 
-        city, complex_name = query[0].strip(), query[1].strip()
-        response = find_housing_complex(city, complex_name)
-        await message.reply(response)
-    except Exception as e:
-        logger.error(f"Ошибка обработки сообщения: {e}")
-        await message.reply("Произошла ошибка. Попробуйте позже.")
+        housing_complexes = get_housing_complex_links(city_url)
+        for complex_name, complex_url in housing_complexes.items():
+            if query.lower() in complex_name.lower():
+                details = get_housing_complex_details(complex_url)
+                reply = f"Информация о ЖК {complex_name}:\n"
+                reply += f"Описание: {details.get('description', 'Не найдено')}\n"
+                reply += f"Детали: {details.get('details', 'Не найдено')}\n"
+                await message.reply(reply)
+                return
+
+    await message.reply("Не удалось найти информацию. Убедитесь, что запрос правильный.")
+
+# Маршрут тестирования
+async def test_handler(request):
+    return web.json_response({"status": "ok", "message": "Test route is working!"})
 
 # Маршрут для вебхука
 async def handle_webhook(request):
@@ -92,6 +134,7 @@ async def handle_webhook(request):
     return web.Response(status=200)
 
 # Настройка маршрутов
+app.router.add_post("/test", test_handler)
 app.router.add_post(WEBHOOK_PATH, handle_webhook)
 
 # Запуск приложения
@@ -101,5 +144,4 @@ if __name__ == "__main__":
     logger.info(f"WEBHOOK_URL: {WEBHOOK_URL}")
     logger.info(f"PORT: {PORT}")
     logger.info(f"WEBHOOK_PATH: {WEBHOOK_PATH}")
-
     web.run_app(app, host="0.0.0.0", port=PORT)
