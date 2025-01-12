@@ -12,34 +12,27 @@ PORT = int(os.getenv("PORT", 5000))
 if not API_TOKEN or not WEBHOOK_URL:
     raise ValueError("Переменные окружения API_TOKEN или WEBHOOK_URL не установлены")
 
-WEBHOOK_PATH = f"/webhook/{API_TOKEN}"  # Полный путь для Telegram
+WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
 
 # Логирование
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # Инициализация бота и диспетчера
-logger.info("Инициализация бота и диспетчера...")
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
-# Временный тестовый маршрут
+# Временный маршрут для тестирования
 async def temporary_handler(request):
     logger.info("Получен временный запрос /test")
-    try:
-        data = await request.json()
-        logger.info(f"Данные запроса: {data}")
-        return web.Response(text="Временный маршрут работает!", status=200)
-    except Exception as e:
-        logger.error(f"Ошибка временного обработчика: {e}")
-        return web.Response(text="Ошибка временного маршрута", status=500)
+    return web.Response(text="Временный маршрут работает!", status=200)
 
 # Обработчик вебхуков
 async def handle_webhook(request):
     logger.info("Получен запрос вебхука")
     try:
         data = await request.json()
-        logger.info(f"Полученные данные: {data}")
+        logger.info(f"Данные запроса: {data}")
         update = Update.to_object(data)
         await dp.process_update(update)
         return web.Response(text="OK", status=200)
@@ -60,10 +53,7 @@ app.router.add_post(WEBHOOK_PATH, handle_webhook)
 
 logger.info("Зарегистрированные маршруты:")
 for route in app.router.routes():
-    if hasattr(route.resource, 'canonical'):
-        logger.info(f"Маршрут: {route.method} {route.resource.canonical}")
-    else:
-        logger.info(f"Маршрут: {route.method} без пути")
+    logger.info(f"Маршрут: {route.method} {route.resource.canonical}")
 
 # Запуск приложения
 if __name__ == "__main__":
