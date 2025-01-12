@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 # Инициализация бота и диспетчера
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
+bot.set_current(bot)  # Установить текущий экземпляр бота
 dp.middleware.setup(LoggingMiddleware())
 
 # Функция парсинга данных
