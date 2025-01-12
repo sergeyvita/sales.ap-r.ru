@@ -4,6 +4,7 @@ import requests
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.middlewares.logging import LoggingMiddleware
+from aiogram.utils.executor import start_webhook
 from bs4 import BeautifulSoup
 
 # Инициализация переменных окружения
@@ -22,9 +23,7 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 dp.middleware.setup(LoggingMiddleware())
-
-# Инициализация приложения Aiohttp
-app = web.Application()
+Bot.set_current(bot)  # Устанавливаем текущий экземпляр бота в контексте
 
 # Функция для получения списка городов
 def get_city_links():
@@ -120,6 +119,7 @@ async def test_handler(request):
     return web.json_response({"status": "ok", "message": "Test route is working!"})
 
 # Настройка маршрутов
+app = web.Application()
 app.router.add_post("/test", test_handler)  # Тестовый маршрут
 app.router.add_post(WEBHOOK_PATH, handle_webhook)  # Вебхук маршрут
 
