@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Инициализация бота и диспетчера
 bot = Bot(token=API_TOKEN)
+Bot.set_current(bot)  # Устанавливаем текущий экземпляр бота
 dp = Dispatcher(bot)
 dp.middleware.setup(LoggingMiddleware())
 
