@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Инициализация бота и диспетчера
-bot = Bot(token=API_TOKEN, parse_mode=types.ParseMode.HTML)  # Установили HTML-режим для обработки форматирования
+bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 dp.middleware.setup(LoggingMiddleware())
 
@@ -67,7 +67,7 @@ async def find_complex(city_url, query):
 
 
 async def fetch_complex_details(details_url):
-    """Извлечение информации о ЖК или МКР с сохранением форматирования."""
+    """Извлечение информации о ЖК или МКР."""
     logger.debug(f"Парсинг информации о ЖК/МКР со страницы {details_url}...")
     response = requests.get(details_url)
     soup = BeautifulSoup(response.text, "html.parser")
@@ -75,21 +75,12 @@ async def fetch_complex_details(details_url):
     # Извлекаем название ЖК
     title = soup.find("h2", class_="default-h2").text.strip()
 
-    # Извлекаем описание с HTML-разметкой
+    # Извлекаем описание
     description_block = soup.find("div", class_="croptext-content")
-    description_html = description_block.decode_contents() if description_block else "Описание отсутствует."
+    description = description_block.get_text(strip=True) if description_block else "Описание отсутствует."
 
-    # Удаляем нежелательные теги, если нужно
-    allowed_tags = ["b", "i", "u", "br", "strong", "em"]  # Разрешённые теги для Telegram
-    soup_description = BeautifulSoup(description_html, "html.parser")
-    for tag in soup_description.find_all(True):
-        if tag.name not in allowed_tags:
-            tag.unwrap()  # Удалить тег, оставив текст
-
-    formatted_description = str(soup_description)
-
-    logger.debug(f"Данные о ЖК/МКР: {title} - {formatted_description}")
-    return title, formatted_description
+    logger.debug(f"Данные о ЖК/МКР: {title} - {description}")
+    return title, description
 
 
 @dp.message_handler()
@@ -113,8 +104,13 @@ async def handle_message(message: types.Message):
                 # Получение деталей ЖК/МКР
                 title, description = await fetch_complex_details(details_url)
 
-                # Отправляем название и описание с форматированием
-                await message.reply(f"<b>{title}</b>\n\n{description}")
+                # Разделяем длинный текст на части
+                max_length = 4000  # Ограничение длины сообщения
+                parts = [description[i:i + max_length] for i in range(0, len(description), max_length)]
+
+                # Отправляем части по очереди
+                for part in parts:
+                    await message.reply(part)
 
                 return
 
