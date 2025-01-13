@@ -122,10 +122,22 @@ async def handle_message(message: types.Message):
         await message.reply("Произошла ошибка при поиске. Попробуйте позже.")
 
 
+async def check_and_set_webhook():
+    """Проверка текущего вебхука и установка нового при необходимости."""
+    logger.info("Проверка текущего вебхука...")
+    webhook_info = await bot.get_webhook_info()
+    if webhook_info.url != WEBHOOK_URL:
+        logger.warning(f"Вебхук не установлен или неправильный: {webhook_info.url}")
+        logger.info("Установка нового вебхука...")
+        await bot.set_webhook(WEBHOOK_URL)
+    else:
+        logger.info("Вебхук уже установлен корректно.")
+
+
 async def on_startup(dp):
     """Действия при старте."""
-    logger.info("Установка вебхука...")
-    await bot.set_webhook(WEBHOOK_URL)
+    logger.info("Инициализация приложения...")
+    await check_and_set_webhook()
 
 
 async def on_shutdown(dp):
